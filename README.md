@@ -7,8 +7,8 @@ This is a proof of concept for making HTTP GET requests in Go and pretty-printin
 1. Install Go: https://golang.org/doc/install
 2. Clone the repository:
     ```sh
-    git clone https://github.com/yourusername/go-http-client-poc.git
-    cd go-http-client-poc
+    git clone https://github.com/wtwerner/go-forth.git
+    cd go-forth
     ```
 3. Install dependencies:
     ```sh
