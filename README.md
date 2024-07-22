@@ -1,4 +1,4 @@
-# go-forth is a HTTP Client for the CLI
+# go-forth is an HTTP Client for the CLI
 
 This is a proof of concept for making HTTP GET requests in Go and pretty-printing the JSON response using `lipgloss`.
 
