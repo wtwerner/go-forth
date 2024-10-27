@@ -11,8 +11,34 @@ import (
 	"os"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "github.com/charmbracelet/bubbletea"
+	gloss "github.com/charmbracelet/lipgloss"
 )
+
+type simplePage struct{ text string }
+
+func newSimplePage(text string) simplePage {
+	return simplePage{text: text}
+}
+
+func (s simplePage) Init() tea.Cmd { return nil }
+
+func (s simplePage) View() string {
+	return fmt.Sprintf(
+		"%s\n\nPress Ctrl+C to exit",
+		s.text,
+	)
+}
+
+func (s simplePage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == "ctrl+c" {
+			return s, tea.Quit
+		}
+	}
+	return s, nil
+}
 
 // FetchData makes an HTTP GET request to the given URL and returns the response body as a string.
 func FetchData(url string) (string, error) {
@@ -89,13 +115,20 @@ func main() {
 	}
 
 	// Style the output using lipgloss
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Background(lipgloss.Color("236")).
+	style := gloss.NewStyle().
+		Foreground(gloss.Color("205")).
+		Background(gloss.Color("236")).
 		Padding(1).
 		Margin(1).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("63"))
+		Border(gloss.RoundedBorder()).
+		BorderForeground(gloss.Color("63"))
 
-	fmt.Println(style.Render(prettyJSON.String()))
+	// fmt.Println(style.Render(prettyJSON.String()))
+
+	p := tea.NewProgram(
+		newSimplePage(style.Render(prettyJSON.String())),
+	)
+	if err := p.Start(); err != nil {
+		panic(err)
+	}
 }
