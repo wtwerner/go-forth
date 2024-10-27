@@ -40,7 +40,6 @@ func (s simplePage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return s, nil
 }
 
-// FetchData makes an HTTP GET request to the given URL and returns the response body as a string.
 func FetchData(url string) (string, error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -56,14 +55,12 @@ func FetchData(url string) (string, error) {
 	return string(body), nil
 }
 
-// internalHTTPClient returns a custom HTTP client with a timeout.
 func internalHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout: 10 * time.Second,
 	}
 }
 
-// FetchDataWithClient makes an HTTP GET request to the given URL using the provided HTTP client and returns the response body as a string.
 func FetchDataWithClient(url string, client *http.Client) (string, error) {
 	resp, err := client.Get(url)
 	if err != nil {
@@ -83,7 +80,6 @@ func FetchDataWithClient(url string, client *http.Client) (string, error) {
 	return string(body), nil
 }
 
-// isValidURL validates the given URL.
 func isValidURL(urlStr string) bool {
 	parsedURL, err := url.ParseRequestURI(urlStr)
 	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
@@ -107,7 +103,6 @@ func main() {
 		log.Fatalf("Error: %v", err)
 	}
 
-	// Pretty-print the JSON data
 	var prettyJSON bytes.Buffer
 	err = json.Indent(&prettyJSON, []byte(data), "", "  ")
 	if err != nil {
@@ -122,8 +117,6 @@ func main() {
 		Margin(1).
 		Border(gloss.RoundedBorder()).
 		BorderForeground(gloss.Color("63"))
-
-	// fmt.Println(style.Render(prettyJSON.String()))
 
 	p := tea.NewProgram(
 		newSimplePage(style.Render(prettyJSON.String())),
