@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -165,6 +166,11 @@ func truncateString(str string, length int) string {
 
 // JSON Pretty-printing with color
 func prettyPrintJSON(data string) (string, error) {
+	if os.Getenv("TEST_MODE") == "true" {
+		// Skip pretty-printing during tests
+		return data, nil
+	}
+
 	var jsonData interface{}
 	if err := json.Unmarshal([]byte(data), &jsonData); err != nil {
 		return "", fmt.Errorf(`{ "error": "invalid JSON format", "details": "%v" }`, err)

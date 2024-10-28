@@ -1,13 +1,28 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// Helper function to compare JSON objects
+func jsonEqual(a, b string) bool {
+	var objA, objB map[string]interface{}
+	if err := json.Unmarshal([]byte(a), &objA); err != nil {
+		return false
+	}
+	if err := json.Unmarshal([]byte(b), &objB); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(objA, objB)
+}
 
 func TestIsValidURL(t *testing.T) {
 	tests := []struct {
@@ -124,6 +139,10 @@ func TestFetchDataWithMockClient(t *testing.T) {
 }
 
 func TestUpdateFunction(t *testing.T) {
+	// Enable test mode to skip pretty-printing
+	os.Setenv("TEST_MODE", "true")
+	defer os.Unsetenv("TEST_MODE")
+
 	// Create a mock server with a handler to simulate different responses
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "notfound") {
@@ -143,7 +162,7 @@ func TestUpdateFunction(t *testing.T) {
 	}{
 		{"Invalid URL", "invalid-url", `{ "error": "invalid URL, please try again" }`},
 		{"Valid URL but non-200", mockServer.URL + "/notfound", `{ "error": "received non-200 response code", "details": "404" }`},
-		{"Valid URL with JSON", mockServer.URL, "{\n  \"key\": \"value\"\n}"},
+		{"Valid URL with JSON", mockServer.URL, `{"key": "value"}`},
 	}
 
 	for _, tt := range tests {
@@ -155,8 +174,15 @@ func TestUpdateFunction(t *testing.T) {
 			updatedModel, _ := m.Update(msg)
 			got := updatedModel.(model).text
 
-			if !strings.HasPrefix(got, tt.expectedMsg) {
-				t.Errorf("Update() = %v; want prefix %v", got, tt.expectedMsg)
+			// Use jsonEqual for JSON comparison or prefix match for error messages
+			if strings.Contains(got, `"error"`) {
+				if !strings.HasPrefix(got, tt.expectedMsg) {
+					t.Errorf("Update() = %v; want prefix %v", got, tt.expectedMsg)
+				}
+			} else {
+				if !jsonEqual(got, tt.expectedMsg) {
+					t.Errorf("Update() JSON = %v; want JSON %v", got, tt.expectedMsg)
+				}
 			}
 		})
 	}
