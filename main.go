@@ -122,7 +122,6 @@ func FetchData(url string) (string, error) {
 
 	// Check if content type contains "application/json"
 	contentType := resp.Header.Get("Content-Type")
-	fmt.Printf("DEBUG: Content-Type is %s\n", contentType) // Debugging line
 	if !strings.Contains(contentType, "application/json") {
 		body, _ := io.ReadAll(resp.Body)
 		return formatJSONError("response is not JSON", truncateString(string(body), 100)), nil
