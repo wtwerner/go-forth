@@ -46,17 +46,6 @@ Please enter a URL for a GET request:
 }
 ```
 
-## Environment Variable
-
-You can set a default URL by using the environment variable FETCH_URL. If this variable is set, the application will use it as the default URL for GET requests.
-
-### Example:
-
-```sh
-export FETCH_URL=https://api.github.com
-go run main.go
-```
-
 ## Testing
 
 The project includes a test suite that covers URL validation, error handling, JSON formatting, and simulated HTTP responses.
