@@ -70,11 +70,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			data, err := FetchData(input)
-			if err != nil {
+			if err != nil || strings.Contains(data, `"error"`) {
+				// Directly assign the error message to avoid double-formatting
 				m.text = data
 				return m, nil
 			}
 
+			// Pretty-print the JSON response only if it's valid JSON data
 			m.text, err = prettyPrintJSON(data)
 			if err != nil {
 				m.text = fmt.Sprintf(`{ "error": "error formatting JSON", "details": "%v" }`, err)
@@ -113,21 +115,26 @@ func FetchData(url string) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	// First, check if the response status code is not 200 OK
 	if resp.StatusCode != http.StatusOK {
 		return formatJSONError("received non-200 response code", fmt.Sprintf("%d", resp.StatusCode)), nil
 	}
 
+	// Check if content type contains "application/json"
 	contentType := resp.Header.Get("Content-Type")
+	fmt.Printf("DEBUG: Content-Type is %s\n", contentType) // Debugging line
 	if !strings.Contains(contentType, "application/json") {
 		body, _ := io.ReadAll(resp.Body)
 		return formatJSONError("response is not JSON", truncateString(string(body), 100)), nil
 	}
 
+	// Read the JSON body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return formatJSONError("failed to read the response body", err.Error()), nil
 	}
 
+	// Ensure the body is valid JSON
 	if !isJSON(body) {
 		return formatJSONError("invalid JSON format", string(body)), nil
 	}
@@ -137,8 +144,8 @@ func FetchData(url string) (string, error) {
 
 // Helper functions for data validation and formatting
 func isValidURL(input string) bool {
-	_, err := url.ParseRequestURI(input)
-	return err == nil
+	parsedURL, err := url.ParseRequestURI(input)
+	return err == nil && parsedURL.Scheme != "" && parsedURL.Host != ""
 }
 
 func isJSON(data []byte) bool {
