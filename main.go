@@ -15,16 +15,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Declare global variables for HTTP client
-var client *http.Client
+// HTTP client configuration
+var client = &http.Client{Timeout: 10 * time.Second}
 
+// Lip Gloss styles for JSON components and response display
 var (
-	keyStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("205")) // Light pink for keys
-	stringStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("34"))  // Green for strings
-	numberStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("178")) // Yellow for numbers
-	boolStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("207")) // Purple for booleans
-	nullStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Gray for null
-	indentation = "  "                                                  // Two spaces for indentation
+	keyStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	stringStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("34"))
+	numberStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("178"))
+	boolStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("207"))
+	nullStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	respStyle   = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("205")).
 			Background(lipgloss.Color("236")).
@@ -34,73 +34,51 @@ var (
 			BorderForeground(lipgloss.Color("63"))
 )
 
-func initialModel() model {
-	ti := textinput.New()
-	ti.Placeholder = "Enter a valid URL"
-	ti.Focus() // Set focus to the input field
-	ti.CharLimit = 256
-	ti.Width = 30
+const indentation = "  "
 
-	return model{
-		text:      "",
-		textInput: ti,
-		quitting:  false,
-	}
-}
-
+// Model definition and initialization
 type model struct {
 	text      string
 	textInput textinput.Model
 	quitting  bool
-	err       error
 }
 
+func initialModel() model {
+	ti := textinput.New()
+	ti.Placeholder = "Enter a valid URL"
+	ti.Focus()
+	ti.CharLimit = 256
+	ti.Width = 30
+
+	return model{text: "", textInput: ti}
+}
+
+// Bubble Tea program functions
 func (m model) Init() tea.Cmd {
-	client = internalHTTPClient() // Initialize HTTP client
 	return nil
-}
-
-func (m model) View() string {
-	if m.quitting {
-		return "Thanks for using go-forth!\n"
-	}
-
-	if m.err != nil {
-		return fmt.Sprintf("Error: %v\n\n%s", m.err, m.textInput.View())
-	}
-
-	return fmt.Sprintf(
-		"\nPlease enter a URL where you'd like to send a GET request:\n\n%s\n\n%s\n\n%s\n",
-		m.textInput.View(),
-		respStyle.Render(m.text), // Display the fetched data with styling
-		"Press ctrl+c to exit",
-	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "enter": // Validate on "enter"
+		case "enter":
 			input := m.textInput.Value()
-			if _, err := url.ParseRequestURI(input); err != nil {
+			if !isValidURL(input) {
 				m.text = `{ "error": "invalid URL, please try again" }`
 				return m, nil
 			}
 
-			data, err := FetchDataWithClient(input, client)
+			data, err := FetchData(input)
 			if err != nil {
-				m.text = data // Already formatted JSON error string from FetchDataWithClient
+				m.text = data
 				return m, nil
 			}
 
-			prettyData, err := prettyPrintJSON(data)
+			m.text, err = prettyPrintJSON(data)
 			if err != nil {
 				m.text = fmt.Sprintf(`{ "error": "error formatting JSON", "details": "%v" }`, err)
-				return m, nil
 			}
-
-			m.text = prettyData
 
 		case "ctrl+c":
 			m.quitting = true
@@ -113,40 +91,73 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func FetchDataWithClient(url string, client *http.Client) (string, error) {
+func (m model) View() string {
+	if m.quitting {
+		return "Thanks for using go-forth!\n"
+	}
+
+	content := respStyle.Render(m.text)
+	return fmt.Sprintf(
+		"\nPlease enter a URL for a GET request:\n\n%s\n\n%s\n\n%s\n",
+		m.textInput.View(),
+		content,
+		"Press ctrl+c to exit",
+	)
+}
+
+// Fetch data and format error responses as JSON
+func FetchData(url string) (string, error) {
 	resp, err := client.Get(url)
 	if err != nil {
-		return `{ "error": "failed to make the request", "details": "` + err.Error() + `" }`, nil
+		return formatJSONError("failed to make the request", err.Error()), nil
 	}
 	defer resp.Body.Close()
 
-	// Check if the response status code is 200 OK
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Sprintf(`{ "error": "received non-200 response code", "code": %d }`, resp.StatusCode), nil
+		return formatJSONError("received non-200 response code", fmt.Sprintf("%d", resp.StatusCode)), nil
 	}
 
-	// Ensure the response Content-Type contains "application/json"
 	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" || !containsJSON(contentType) {
+	if !strings.Contains(contentType, "application/json") {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Sprintf(`{ "error": "response is not JSON", "content_type": "%s", "body": "%s" }`, contentType, truncateString(string(body), 100)), nil
+		return formatJSONError("response is not JSON", truncateString(string(body), 100)), nil
 	}
 
-	// Read and attempt to parse the JSON response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return `{ "error": "failed to read the response body", "details": "` + err.Error() + `" }`, nil
+		return formatJSONError("failed to read the response body", err.Error()), nil
 	}
 
-	// Validate JSON structure by unmarshaling
-	var jsonCheck map[string]interface{}
-	if err := json.Unmarshal(body, &jsonCheck); err != nil {
-		return `{ "error": "invalid JSON format", "details": "` + err.Error() + `" }`, nil
+	if !isJSON(body) {
+		return formatJSONError("invalid JSON format", string(body)), nil
 	}
 
 	return string(body), nil
 }
 
+// Helper functions for data validation and formatting
+func isValidURL(input string) bool {
+	_, err := url.ParseRequestURI(input)
+	return err == nil
+}
+
+func isJSON(data []byte) bool {
+	var js json.RawMessage
+	return json.Unmarshal(data, &js) == nil
+}
+
+func formatJSONError(message, details string) string {
+	return fmt.Sprintf(`{ "error": "%s", "details": "%s" }`, message, details)
+}
+
+func truncateString(str string, length int) string {
+	if len(str) <= length {
+		return str
+	}
+	return str[:length] + "..."
+}
+
+// JSON Pretty-printing with color
 func prettyPrintJSON(data string) (string, error) {
 	var jsonData interface{}
 	if err := json.Unmarshal([]byte(data), &jsonData); err != nil {
@@ -168,7 +179,7 @@ func renderJSON(data interface{}, level int) string {
 			buf.WriteString(renderJSON(value, level+1))
 			buf.WriteString(",\n")
 		}
-		buf.Truncate(buf.Len() - 2) // Remove trailing comma and newline
+		buf.Truncate(buf.Len() - 2)
 		buf.WriteString("\n" + indent + "}")
 
 	case []interface{}:
@@ -190,33 +201,14 @@ func renderJSON(data interface{}, level int) string {
 	case nil:
 		buf.WriteString(nullStyle.Render("null"))
 	}
+
 	return buf.String()
 }
 
-// Helper function to check if Content-Type is JSON
-func containsJSON(contentType string) bool {
-	return strings.Contains(contentType, "application/json")
-}
-
-// Helper function to truncate long strings to a specific length
-func truncateString(str string, num int) string {
-	if len(str) <= num {
-		return str
-	}
-	return str[:num] + "..."
-}
-
-func internalHTTPClient() *http.Client {
-	return &http.Client{
-		Timeout: 10 * time.Second,
-	}
-}
-
 func main() {
-	p := tea.NewProgram(
-		initialModel(),
-	)
-	if err := p.Start(); err != nil {
-		panic(err)
+	p := tea.NewProgram(initialModel())
+	_, err := p.Run()
+	if err != nil {
+		fmt.Printf("Error running program: %v\n", err)
 	}
 }
