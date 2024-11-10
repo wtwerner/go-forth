@@ -37,21 +37,36 @@ var (
 
 const indentation = "  "
 
+type component int
+
+const (
+	textInputFocus component = iota
+	methodListFocus
+)
+
 // Model definition and initialization
 type model struct {
-	text      string
-	textInput textinput.Model
-	quitting  bool
+	text             string
+	urlInput         textinput.Model
+	methodInput      textinput.Model
+	focusedComponent component
+	quitting         bool
 }
 
 func initialModel() model {
-	ti := textinput.New()
-	ti.Placeholder = "Enter a valid URL"
-	ti.Focus()
-	ti.CharLimit = 256
-	ti.Width = 30
+	const defaultWidth = 40
 
-	return model{text: "", textInput: ti}
+	url := textinput.New()
+	url.Placeholder = "Enter a valid URL"
+	url.Focus()
+	url.CharLimit = 256
+	url.Width = defaultWidth
+
+	method := textinput.New()
+	method.Placeholder = "HTTP Method"
+	method.CharLimit = 6
+
+	return model{text: "", urlInput: url, methodInput: method, focusedComponent: textInputFocus}
 }
 
 // Bubble Tea program functions
@@ -59,38 +74,90 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
+var httpMethods = map[string]bool{
+	"GET":    true,
+	"POST":   true,
+	"PUT":    true,
+	"DELETE": true,
+	"PATCH":  true,
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "ctrl+c":
+			m.quitting = true
+			return m, tea.Quit
+
 		case "enter":
-			input := m.textInput.Value()
+			// Validate URL
+			input := m.urlInput.Value()
 			if !isValidURL(input) {
 				m.text = `{ "error": "invalid URL, please try again" }`
 				return m, nil
 			}
 
-			data, err := FetchData(input)
+			// Validate HTTP Method
+			method := strings.ToUpper(m.methodInput.Value())
+			if !httpMethods[method] {
+				m.text = `{ "error": "invalid HTTP method, please enter GET, POST, PUT, DELETE, or PATCH" }`
+				return m, nil
+			}
+
+			// Fetch data with the validated method
+			data, err := FetchData(input, method)
 			if err != nil || strings.Contains(data, `"error"`) {
-				// Directly assign the error message to avoid double-formatting
 				m.text = data
 				return m, nil
 			}
 
-			// Pretty-print the JSON response only if it's valid JSON data
+			// Pretty-print JSON response if valid
 			m.text, err = prettyPrintJSON(data)
 			if err != nil {
 				m.text = fmt.Sprintf(`{ "error": "error formatting JSON", "details": "%v" }`, err)
 			}
+			return m, nil
 
-		case "ctrl+c":
-			m.quitting = true
-			return m, tea.Quit
+		case "down", "j":
+			if m.focusedComponent == textInputFocus {
+				m.focusedComponent = methodListFocus
+				m.urlInput.Blur()
+				m.methodInput.Focus()
+			}
+			return m, nil
+
+		case "up", "k":
+			if m.focusedComponent == methodListFocus {
+				m.focusedComponent = textInputFocus
+				m.methodInput.Blur()
+				m.urlInput.Focus()
+			}
+			return m, nil
+
+		case "tab":
+			// Toggle focus between urlInput and methodInput on Tab key press
+			if m.focusedComponent == methodListFocus {
+				m.focusedComponent = textInputFocus
+				m.methodInput.Blur()
+				m.urlInput.Focus()
+			} else {
+				m.focusedComponent = methodListFocus
+				m.urlInput.Blur()
+				m.methodInput.Focus()
+			}
+			return m, nil
 		}
 	}
 
 	var cmd tea.Cmd
-	m.textInput, cmd = m.textInput.Update(msg)
+	// Update the input component based on which one is focused
+	if m.focusedComponent == textInputFocus {
+		m.urlInput, cmd = m.urlInput.Update(msg)
+	} else {
+		m.methodInput, cmd = m.methodInput.Update(msg)
+	}
+
 	return m, cmd
 }
 
@@ -101,16 +168,24 @@ func (m model) View() string {
 
 	content := respStyle.Render(m.text)
 	return fmt.Sprintf(
-		"\nPlease enter a URL for a GET request:\n\n%s\n\n%s\n\n%s\n",
-		m.textInput.View(),
+		"\nPlease enter a URL for a GET request:\n\n%s\n\n%s\n\n%s\n%s\n",
+		m.urlInput.View(),
+		m.methodInput.View(),
 		content,
 		"Press ctrl+c to exit",
 	)
 }
 
 // Fetch data and format error responses as JSON
-func FetchData(url string) (string, error) {
-	resp, err := client.Get(url)
+func FetchData(url, method string) (string, error) {
+	// Create a new request with the selected method
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return formatJSONError("failed to create the request", err.Error()), nil
+	}
+
+	// Execute the request
+	resp, err := client.Do(req)
 	if err != nil {
 		return formatJSONError("failed to make the request", err.Error()), nil
 	}
