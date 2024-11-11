@@ -5,7 +5,7 @@
 
 ## Features
 
-- **HTTP Method Selection**: Easily switch between `GET`, `POST`, `PUT`, `DELETE`, and `PATCH` requests using a dropdown input.
+- **HTTP Method Selection**: Easily switch between `GET`, `POST`, `PUT`, `DELETE`, and `PATCH` requests using a text input.
 - **JSON and HTML Response Formatting**: Automatically detects and pretty-prints JSON responses with syntax highlighting and indents HTML responses for readability.
 - **Error Handling**: Provides clear error messages for invalid URLs, unsupported methods, non-200 HTTP status codes, and unsupported response formats.
 - **Enhanced CLI Interface**: Uses `Bubble Tea` for interactive text and dropdown inputs, making the CLI experience smooth and intuitive.
@@ -48,8 +48,13 @@ go run main.go
 ### Example
 
 ```plaintext
-Please enter a URL for a GET request:
-> https://api.github.com
+URL:
+
+> http://api.github.com                    
+
+HTTP method:
+
+> GET 
 
 {
   "current_user_url": "https://api.github.com/user",
