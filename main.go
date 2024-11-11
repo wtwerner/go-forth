@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/net/html"
 )
 
 // HTTP client configuration
@@ -233,35 +234,74 @@ func truncateString(str string, length int) string {
 	return str[:length] + "..."
 }
 
-func prettyPrintText(data string) string {
-	// Basic HTML indentation
-	var formattedText bytes.Buffer
-	indentLevel := 0
-	lines := strings.Split(data, ">")
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-
-		// Decrease indent after closing tags
-		if strings.HasPrefix(trimmed, "/") {
-			indentLevel--
-		}
-
-		// Add current line with indentation
-		formattedText.WriteString(strings.Repeat("  ", indentLevel) + trimmed + ">\n")
-
-		// Increase indent after opening tags that are not self-closing
-		if !strings.HasPrefix(trimmed, "/") &&
-			!strings.HasSuffix(trimmed, "/") &&
-			!strings.Contains(trimmed, "doctype") {
-			indentLevel++
-		}
+func formatHTMLText(data string) (string, error) {
+	// Parse the HTML
+	node, err := html.Parse(strings.NewReader(data))
+	if err != nil {
+		return "", err
 	}
 
-	// Apply additional styling with lipgloss for display
+	// Use a buffer to capture formatted output
+	var buf bytes.Buffer
+	formatNode(&buf, node, 0)
+	return buf.String(), nil
+}
+
+func formatNode(buf *bytes.Buffer, n *html.Node, level int) {
+	// Skip the root node and <head> element for formatting purposes
+	if n.Type == html.DocumentNode || (n.Type == html.ElementNode && n.Data == "head") {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			formatNode(buf, c, level)
+		}
+		return
+	}
+
+	// Check if the node has only one child and that child is a text node
+	if n.Type == html.ElementNode && n.FirstChild != nil && n.FirstChild == n.LastChild && n.FirstChild.Type == html.TextNode {
+		// Inline text content within tags
+		indent(buf, level)
+		buf.WriteString("<" + n.Data + ">")
+		buf.WriteString(strings.TrimSpace(n.FirstChild.Data)) // Inline text
+		buf.WriteString("</" + n.Data + ">\n")
+		return
+	}
+
+	// Add opening tag with indentation
+	if n.Type == html.ElementNode {
+		indent(buf, level)
+		buf.WriteString("<" + n.Data + ">\n")
+	}
+
+	// Process child nodes
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		formatNode(buf, c, level+1)
+	}
+
+	// Add closing tag for element nodes
+	if n.Type == html.ElementNode {
+		indent(buf, level)
+		buf.WriteString("</" + n.Data + ">\n")
+	} else if n.Type == html.TextNode {
+		// Add text content with indentation for multi-line text
+		text := strings.TrimSpace(n.Data)
+		if text != "" {
+			indent(buf, level)
+			buf.WriteString(text + "\n")
+		}
+	}
+}
+
+func indent(buf *bytes.Buffer, level int) {
+	buf.WriteString(strings.Repeat("  ", level))
+}
+
+func prettyPrintText(data string) string {
+	// Apply indentation using formatHTMLText, then style with lipgloss
+	formattedText, err := formatHTMLText(data)
+	if err != nil {
+		return formatJSONError("error formatting text", err.Error())
+	}
+
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color("250")).
 		Background(lipgloss.Color("235")).
@@ -269,7 +309,7 @@ func prettyPrintText(data string) string {
 		Margin(1).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("63")).
-		Render(truncateString(formattedText.String(), 2000))
+		Render(truncateString(formattedText, 2000))
 }
 
 func prettyPrintJSON(data string) (string, error) {
