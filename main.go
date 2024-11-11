@@ -105,17 +105,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			// Fetch data with the validated method
+			// Fetch and format data with the validated method
 			data, err := FetchData(input, method)
-			if err != nil || strings.Contains(data, `"error"`) {
-				m.text = data
-				return m, nil
-			}
-
-			// Pretty-print JSON response if valid
-			m.text, err = prettyPrintJSON(data)
 			if err != nil {
-				m.text = fmt.Sprintf(`{ "error": "error formatting JSON", "details": "%v" }`, err)
+				m.text = data
+			} else {
+				m.text = data
 			}
 			return m, nil
 
@@ -176,7 +171,6 @@ func (m model) View() string {
 	)
 }
 
-// Fetch data and format error responses as JSON
 func FetchData(url, method string) (string, error) {
 	// Create a new request with the selected method
 	req, err := http.NewRequest(method, url, nil)
@@ -191,30 +185,30 @@ func FetchData(url, method string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	// First, check if the response status code is not 200 OK
+	// Check if the response status code is not 200 OK
 	if resp.StatusCode != http.StatusOK {
 		return formatJSONError("received non-200 response code", fmt.Sprintf("%d", resp.StatusCode)), nil
 	}
 
-	// Check if content type contains "application/json"
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "application/json") {
-		body, _ := io.ReadAll(resp.Body)
-		return formatJSONError("response is not JSON", truncateString(string(body), 100)), nil
-	}
-
-	// Read the JSON body
+	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return formatJSONError("failed to read the response body", err.Error()), nil
 	}
 
-	// Ensure the body is valid JSON
-	if !isJSON(body) {
-		return formatJSONError("invalid JSON format", string(body)), nil
+	// Determine response format based on content type
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "application/json") && isJSON(body) {
+		// Attempt to pretty-print JSON
+		prettyJSON, err := prettyPrintJSON(string(body))
+		if err != nil {
+			return formatJSONError("error formatting JSON", err.Error()), nil
+		}
+		return prettyJSON, nil
 	}
 
-	return string(body), nil
+	// If not JSON, return as plain text with styling
+	return prettyPrintText(string(body)), nil
 }
 
 // Helper functions for data validation and formatting
@@ -239,7 +233,45 @@ func truncateString(str string, length int) string {
 	return str[:length] + "..."
 }
 
-// JSON Pretty-printing with color
+func prettyPrintText(data string) string {
+	// Basic HTML indentation
+	var formattedText bytes.Buffer
+	indentLevel := 0
+	lines := strings.Split(data, ">")
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		// Decrease indent after closing tags
+		if strings.HasPrefix(trimmed, "/") {
+			indentLevel--
+		}
+
+		// Add current line with indentation
+		formattedText.WriteString(strings.Repeat("  ", indentLevel) + trimmed + ">\n")
+
+		// Increase indent after opening tags that are not self-closing
+		if !strings.HasPrefix(trimmed, "/") &&
+			!strings.HasSuffix(trimmed, "/") &&
+			!strings.Contains(trimmed, "doctype") {
+			indentLevel++
+		}
+	}
+
+	// Apply additional styling with lipgloss for display
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("250")).
+		Background(lipgloss.Color("235")).
+		Padding(1).
+		Margin(1).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("63")).
+		Render(truncateString(formattedText.String(), 2000))
+}
+
 func prettyPrintJSON(data string) (string, error) {
 	if os.Getenv("TEST_MODE") == "true" {
 		// Skip pretty-printing during tests
